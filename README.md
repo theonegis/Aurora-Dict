@@ -60,8 +60,8 @@ npm run tauri build
 推送新的 Git tag（或手动运行 Actions）会触发 [发布工作流](.github/workflows/release.yml)。工作流先创建草稿 Release，只有所有平台均构建成功才会公开发布：
 
 ```Shell
-git tag -a v1.2.1 -m "Aurora Dict v1.2.1"
-git push origin v1.2.1
+git tag -a v2.0.0 -m "Aurora Dict v2.0.0"
+git push origin v2.0.0
 ```
 
 - macOS ARM64 与 x64 `.dmg`；
