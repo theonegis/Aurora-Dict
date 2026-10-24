@@ -1289,7 +1289,7 @@ main > .settings-page { margin-top: 18px; }
 .vocabulary-feedback { border-color: color-mix(in srgb, var(--ink) 8%, transparent); }
 
 .vocabulary-page > [hidden] { display: none !important; }
-.vocabulary-quiz { width: min(100%, 680px); }
+.vocabulary-quiz { width: min(100%, 680px); margin-inline: auto; }
 .vocabulary-quiz-card { padding: clamp(18px, 4vw, 28px); background: rgba(var(--card-rgb), .9); border: 1px solid rgba(var(--accent-rgb), .13); border-radius: 12px; box-shadow: 0 2px 9px rgba(35, 32, 48, .05); }
 .vocabulary-quiz-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(var(--accent-rgb), .14); }
 .vocabulary-quiz-heading h2 { margin: 0; color: var(--ink); font-size: var(--type-large); }
