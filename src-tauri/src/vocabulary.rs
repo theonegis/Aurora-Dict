@@ -143,7 +143,7 @@ pub fn ensure_vocabulary_book(app: &AppHandle) -> Result<(), String> {
     open_vocabulary(&path).map(|_| ())
 }
 
-fn open_active_vocabulary(app: &AppHandle) -> Result<(PathBuf, Connection), String> {
+pub(crate) fn open_active_vocabulary(app: &AppHandle) -> Result<(PathBuf, Connection), String> {
     let path = vocabulary_path(app)?;
     if location_config_path(app)?.exists() && !path.exists() {
         return Err(format!(
@@ -167,7 +167,7 @@ fn entry_from_row(row: &Row<'_>) -> rusqlite::Result<VocabularyEntry> {
     })
 }
 
-fn entry_by_id(connection: &Connection, id: i64) -> Result<VocabularyEntry, String> {
+pub(crate) fn entry_by_id(connection: &Connection, id: i64) -> Result<VocabularyEntry, String> {
     connection
         .query_row(
             "SELECT id, word, phonetic, definition_markdown, examples_markdown,

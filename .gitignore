@@ -18,6 +18,7 @@ src-tauri/binaries/
 *.db-shm
 *.sqlite
 *.sqlite3
+!MyDict/composeApp/src/androidMain/assets/ecdict-mobile.sqlite3
 
 # Environment-specific secrets and local release configuration
 .env
@@ -40,3 +41,6 @@ Thumbs.db
 
 # Playwright
 .playwright-cli/
+
+# Local notes stay on this machine
+/docs/

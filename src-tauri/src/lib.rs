@@ -1,5 +1,7 @@
 mod llm;
 mod vocabulary;
+mod vocabulary_quiz;
+mod word_graph;
 
 use llm::LlmManager;
 use reqwest::Client;
@@ -1886,6 +1888,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             lookup_local,
+            word_graph::lookup_word_graph,
             suggest_local_words,
             lookup_online,
             dictionary_status,
@@ -1895,6 +1898,7 @@ pub fn run() {
             llm::download_llm_model,
             llm::delete_llm_model,
             llm::lookup_llm,
+            llm::generate_graph_mnemonic,
             llm::translate_llm,
             vocabulary::list_vocabulary_entries,
             vocabulary::add_vocabulary_entry,
@@ -1904,7 +1908,8 @@ pub fn run() {
             vocabulary::export_vocabulary_book,
             vocabulary::import_vocabulary_book,
             vocabulary::move_vocabulary_book,
-            vocabulary::open_vocabulary_book
+            vocabulary::open_vocabulary_book,
+            vocabulary_quiz::generate_vocabulary_quiz_question
         ])
         .run(tauri::generate_context!())
         .expect("error while running Aurora Dictionary");

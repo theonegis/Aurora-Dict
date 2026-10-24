@@ -146,6 +146,7 @@ pub struct LlmPrepareResult {
 enum LlmOperation {
     Lookup,
     Translation,
+    Quiz,
 }
 
 impl LlmOperation {
@@ -153,6 +154,7 @@ impl LlmOperation {
         match self {
             Self::Lookup => "lookup",
             Self::Translation => "translation",
+            Self::Quiz => "quiz",
         }
     }
 }
@@ -683,6 +685,7 @@ pub async fn lookup_llm(
         &system_prompt,
         &user_prompt,
         420,
+        0.2,
         started,
     )
     .await?;
@@ -694,6 +697,69 @@ pub async fn lookup_llm(
         note: "由本地 AI 模型生成，仅供语言学习参考。".into(),
         performance: completion.performance,
     })
+}
+
+/// Generate an optional memory aid from already-sourced relationships. The
+/// generated text is never accepted as an edge in the graph.
+#[tauri::command]
+pub async fn generate_graph_mnemonic(
+    app: AppHandle,
+    manager: State<'_, LlmManager>,
+    model_id: String,
+    word: String,
+    evidence: String,
+) -> Result<String, String> {
+    if word.len() > 40 || !word.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+        return Err("仅支持单个英文单词。".into());
+    }
+    if evidence.len() > 2_000 {
+        return Err("关系资料过长。".into());
+    }
+    let requested_model = model_definition(&model_id)?;
+    let (model, path) = resolve_downloaded_model(&app, requested_model)?;
+    let connection = ensure_server(&app, &manager, model, &path).await?;
+    let prompt = format!("目标词：{word}\n已核实的构词与词汇关系：\n{evidence}\n/no_think");
+    let completion = complete_local_request(
+        &app, "", LlmOperation::Lookup, model, &connection,
+        "你是英语记忆助手。仅根据用户提供的已核实资料写一句简短中文记忆提示。不要补充未列出的词根、词源、近义词或关系；资料不足时只说资料不足。不要将提示写成事实断言。",
+        &prompt, 160, 0.2, Instant::now(),
+    ).await?;
+    if completion.content.chars().count() > 280
+        || !mnemonic_uses_known_english(&completion.content, &word, &evidence)
+    {
+        return Err("本地 AI 提示未通过词汇核验，请重试。".into());
+    }
+    Ok(completion.content)
+}
+
+pub(crate) async fn generate_quiz_completion(
+    app: &AppHandle,
+    manager: &LlmManager,
+    model_id: &str,
+    prompt: &str,
+    temperature: f32,
+) -> Result<String, String> {
+    let requested = model_definition(model_id)?;
+    let (model, path) = resolve_downloaded_model(app, requested)?;
+    let connection = ensure_server(app, manager, model, &path).await?;
+    let completion = complete_local_request(
+        app, "", LlmOperation::Quiz, model, &connection,
+        "Return only one JSON object with keys sentence, translation, explanation.",
+        prompt, 280, temperature, Instant::now(),
+    ).await?;
+    Ok(completion.content)
+}
+
+fn mnemonic_uses_known_english(content: &str, word: &str, evidence: &str) -> bool {
+    let allowed = evidence
+        .split(|character: char| !character.is_ascii_alphabetic())
+        .chain(std::iter::once(word))
+        .map(str::to_ascii_lowercase)
+        .collect::<std::collections::HashSet<_>>();
+    content
+        .split(|character: char| !character.is_ascii_alphabetic())
+        .filter(|token| !token.is_empty())
+        .all(|token| allowed.contains(&token.to_ascii_lowercase()))
 }
 
 #[tauri::command]
@@ -732,6 +798,7 @@ pub async fn translate_llm(
         &system_prompt,
         &user_prompt,
         1_024,
+        0.2,
         started,
     )
     .await?;
@@ -760,6 +827,7 @@ pub async fn translate_llm(
             &retry_system,
             &retry_prompt,
             1_024,
+            0.2,
             started,
         )
         .await?;
@@ -883,6 +951,7 @@ async fn complete_local_request(
     system: &str,
     user_prompt: &str,
     max_tokens: u16,
+    temperature: f32,
     started: Instant,
 ) -> Result<CompletionResult, String> {
     let payload = ChatRequest {
@@ -897,7 +966,7 @@ async fn complete_local_request(
                 content: &user_prompt,
             },
         ],
-        temperature: 0.2,
+        temperature,
         top_p: 0.85,
         max_tokens,
         stream: true,
@@ -1332,6 +1401,20 @@ mod tests {
         translation_needs_retry, translation_user_prompt, visible_stream_content, LlamaTimings,
         TranslationDirection,
     };
+
+    #[test]
+    fn memory_tip_cannot_introduce_unverified_english_words() {
+        assert!(super::mnemonic_uses_known_english(
+            "kind + -ness 帮助记住 kindness。",
+            "kindness",
+            "构词：kind + -ness"
+        ));
+        assert!(!super::mnemonic_uses_known_english(
+            "kindness 还和 generosity 有关。",
+            "kindness",
+            "构词：kind + -ness"
+        ));
+    }
 
     #[test]
     fn rejects_repeated_output_even_after_a_valid_prefix() {

@@ -4,7 +4,7 @@ export type UiLanguage = "zh" | "en";
 export type FontId = string;
 export type LocalModelId = "qwen3-0.6b" | "qwen3-1.7b" | "qwen3-4b";
 export type DownloadSourceId = "mirror" | "official";
-export type PanelId = "dictionary" | "translation" | "vocabulary" | "settings";
+export type PanelId = "dictionary" | "translation" | "vocabulary" | "quiz" | "settings";
 export type SettingsTabId = "appearance" | "dictionary" | "software";
 
 export interface DictionaryEntry {
@@ -30,6 +30,33 @@ export interface LocalLookup {
 export interface LocalSuggestions {
   suggestions: string[];
   correction: boolean;
+}
+
+export interface GraphWord {
+  word: string;
+  detail: string;
+  sourceUrl: string;
+}
+
+export interface GraphSense {
+  id: string;
+  gloss: string;
+  partOfSpeech: string;
+  synonyms: GraphWord[];
+}
+
+export interface GraphMorpheme {
+  label: string;
+  components: string[];
+  sourceUrl: string;
+}
+
+export interface WordGraph {
+  word: string;
+  senses: GraphSense[];
+  morphology: GraphMorpheme[];
+  spelling: GraphWord[];
+  warnings: string[];
 }
 
 export interface DictionaryStatus {
@@ -184,6 +211,16 @@ export interface VocabularyEntry extends Omit<VocabularyEntryInput, "id"> {
   id: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface VocabularyQuizQuestion {
+  entryId: number;
+  word: string;
+  sentence: string;
+  translation: string;
+  options: [string, string, string, string];
+  correctIndex: number;
+  explanation: string;
 }
 
 export interface VocabularyBookStatus {

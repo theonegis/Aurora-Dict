@@ -236,7 +236,7 @@ src-tauri/target/release/bundle/rpm/
 src-tauri/target/release/aurora-dict
 ```
 
-面向 Arch Linux 用户发布时使用 `aurora-dict-bin` AUR 包，而不是把 deb 或 rpm 直接交给用户。具体步骤见 [AUR 发布说明](docs/aur-publishing.md)。
+面向 Arch Linux 用户发布时使用 `aurora-dict-bin` AUR 包，而不是把 deb 或 rpm 直接交给用户。
 
 ## 6. 仅构建可执行文件
 
@@ -302,4 +302,3 @@ git push origin v1.1.0
 - [Tauri 发行与打包](https://v2.tauri.app/distribute/)
 - [Tauri macOS DMG](https://v2.tauri.app/distribute/dmg/)
 - [Tauri Windows 安装器](https://v2.tauri.app/distribute/windows-installer/)
-- [AUR 发布说明](docs/aur-publishing.md)

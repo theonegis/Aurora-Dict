@@ -4,8 +4,6 @@ Aurora Dict 是一款为 Linux 用户而做、也同样适用于 macOS 与 Windo
 
 许多 Linux 上可用的词典要么界面陈旧，要么必须依赖网页或复杂的导入流程。这个项目希望提供另一种体验：打开即可使用的离线词库、清晰可靠的中英查询，以及一个安静、精致、不打扰阅读的桌面界面。它使用 Tauri 2 构建，前端采用 React、TypeScript 与 Vite；在保持轻量的同时，将 iOS 的卡片层次与 Windows Mica 的半透明质感带到桌面端。
 
-![Aurora Dict 1.2 本地 AI 单词查询结果](docs/images/aurora-dict.png)
-
 ## 特性
 
 - Windows、macOS 与 Linux 的原生桌面窗口，自定义标题栏和统一的窗体圆角。
@@ -62,17 +60,17 @@ npm run tauri build
 推送新的 Git tag（或手动运行 Actions）会触发 [发布工作流](.github/workflows/release.yml)。工作流先创建草稿 Release，只有所有平台均构建成功才会公开发布：
 
 ```Shell
-git tag -a v1.2.0 -m "Aurora Dict v1.2.0"
-git push origin v1.2.0
+git tag -a v1.2.1 -m "Aurora Dict v1.2.1"
+git push origin v1.2.1
 ```
 
 - macOS ARM64 与 x64 `.dmg`；
 - Windows x64 NSIS `.exe`；
 - Linux x64 `.deb` 与 `.rpm`。
 
-所有安装包默认包含 llama.cpp 本地推理引擎；Qwen 模型会由用户在设置页按需下载，因此不会增大初始安装包数百 MB。具体构建方式见 [本地 AI 引擎构建说明](docs/offline-ai-build.md)。
+所有安装包默认包含 llama.cpp 本地推理引擎；Qwen 模型会由用户在设置页按需下载，因此不会增大初始安装包数百 MB。侧车二进制由 `scripts/prepare-llama-sidecar.sh` 准备。
 
-Arch Linux 用户包使用 `aurora-dict-bin`，AUR 发布与维护步骤见 [AUR 发布说明](docs/aur-publishing.md)。发布后可通过 `paru -S aurora-dict-bin` 安装。
+Arch Linux 用户包使用 `aurora-dict-bin`。发布后可通过 `paru -S aurora-dict-bin` 安装。
 
 工作流默认产生未经过开发者证书签名和公证的产物；macOS 安装包使用 ad-hoc 签名。
 
