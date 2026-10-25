@@ -9,7 +9,7 @@
 本项目的离线 ECDICT SQLite 资源由 Git LFS 管理。它是应用首次启动时准备本地字典所必需的文件；未下载它时，Tauri 打包会失败。
 
 ```bash
-git clone https://github.com/theonegis/aurora-dict.git
+git clone https://github.com/theonegis/Aurora-Dict.git
 cd aurora-dict
 
 git lfs install
