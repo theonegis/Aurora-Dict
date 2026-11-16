@@ -103,6 +103,7 @@ function sameEntry(left: VocabularyEntryInput, right: VocabularyEntryInput): boo
 function editableEntry(entry: VocabularyEntry): VocabularyEntryInput {
   return {
     id: entry.id,
+    expectedVersion: entry.syncVersion,
     word: entry.word,
     phonetic: entry.phonetic,
     definitionMarkdown: entry.definitionMarkdown,
@@ -138,7 +139,9 @@ export function VocabularyPanel({ entries, status, loading, error, isDesktop, pe
   const [creatingNew, setCreatingNew] = useState(false);
   const [draft, setDraft] = useState<VocabularyEntryInput>(emptyEntry);
   const [baseline, setBaseline] = useState<VocabularyEntryInput>(emptyEntry);
-  const [pending, setPending] = useState(false);
+  const [pending, setPendingState] = useState(false);
+  const operation = useRef(false);
+  const setPending = (value: boolean) => { operation.current = value; setPendingState(value); };
   const [message, setMessage] = useState("");
   const [actionError, setActionError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -176,7 +179,7 @@ export function VocabularyPanel({ entries, status, loading, error, isDesktop, pe
 
   const mayDiscard = () => !dirty || window.confirm(t("vocabularyDiscardChanges"));
   const selectEntry = (entry: VocabularyEntry) => {
-    if (pending || !mayDiscard()) return false;
+    if (operation.current || loading || !mayDiscard()) return false;
     const next = editableEntry(entry);
     setSelectedId(entry.id);
     setCreatingNew(false);
@@ -220,7 +223,7 @@ export function VocabularyPanel({ entries, status, loading, error, isDesktop, pe
     requestDelete(entry);
   };
   const createEntry = () => {
-    if (!mayDiscard()) return;
+    if (operation.current || !mayDiscard()) return;
     previousId.current = selectedId;
     const next = emptyEntry();
     setSelectedId(null);
@@ -233,7 +236,7 @@ export function VocabularyPanel({ entries, status, loading, error, isDesktop, pe
     setConfirmDelete(false);
   };
   const finishReading = () => {
-    if (!mayDiscard()) return;
+    if (operation.current || !mayDiscard()) return;
     setConfirmDelete(false);
     setMessage("");
     setActionError("");
@@ -255,6 +258,7 @@ export function VocabularyPanel({ entries, status, loading, error, isDesktop, pe
     setMode("read");
   };
   const saveEntry = useCallback(async () => {
+    if (operation.current) return;
     setPending(true);
     setActionError("");
     setMessage("");
@@ -271,7 +275,7 @@ export function VocabularyPanel({ entries, status, loading, error, isDesktop, pe
     } finally { setPending(false); }
   }, [draft, persist]);
   const deleteEntry = async () => {
-    if (draft.id === null) return;
+    if (operation.current || draft.id === null) return;
     setPending(true);
     setActionError("");
     try {
@@ -336,13 +340,12 @@ export function VocabularyPanel({ entries, status, loading, error, isDesktop, pe
     };
   }, [entryMenu]);
   const chooseOpenPath = async (action: "open" | "import") => {
-    if (!isDesktop || !mayDiscard()) return;
-    const selected = await open({ multiple: false, directory: false, filters: sqliteFilters });
-    if (typeof selected !== "string") return;
+    if (!isDesktop || operation.current || !mayDiscard()) return;
     setPending(true); setActionError(""); setMessage("");
     try {
+      const selected = await open({ multiple: false, directory: false, filters: sqliteFilters });
+      if (typeof selected !== "string") return;
       const nextStatus = action === "open" ? await openBook(selected) : await importBook(selected);
-      await refresh();
       const next = emptyEntry();
       setSelectedId(null);
       setCreatingNew(false);
@@ -350,16 +353,17 @@ export function VocabularyPanel({ entries, status, loading, error, isDesktop, pe
       setBaseline(next);
       setConfirmDelete(false);
       setMode("read");
+      await refresh();
       setMessage(action === "open" ? t("vocabularyOpened") : `${t("vocabularyImported")} · ${nextStatus.entryCount}`);
     } catch (reason) { setActionError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setPending(false); }
   };
   const chooseSavePath = async (action: "move" | "export") => {
-    if (!isDesktop || !mayDiscard()) return;
-    const selected = await save({ defaultPath: action === "move" ? status?.path : "aurora-vocabulary.sqlite3", filters: sqliteFilters });
-    if (!selected) return;
+    if (!isDesktop || operation.current || !mayDiscard()) return;
     setPending(true); setActionError(""); setMessage("");
     try {
+      const selected = await save({ defaultPath: action === "move" ? status?.path : "aurora-vocabulary.sqlite3", filters: sqliteFilters });
+      if (!selected) return;
       await (action === "move" ? moveBook(selected) : exportBook(selected));
       await refresh();
       setMessage(action === "move" ? t("vocabularyMoved") : t("vocabularyExported"));
@@ -373,7 +377,7 @@ export function VocabularyPanel({ entries, status, loading, error, isDesktop, pe
   const showDetail = mode === "edit" || selectedId !== null;
   const runFileAction = (action: () => void) => { setFileMenu(false); action(); };
 
-  return <section className="vocabulary-page" aria-label={t("vocabularyBook")}>
+  return <fieldset disabled={pending || loading} className="vocabulary-page" aria-label={t("vocabularyBook")}>
     <div className="vocabulary-toolbar">
       <div className="vocabulary-list-actions">
         <label><i className="fa-solid fa-magnifying-glass" aria-hidden="true" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("vocabularySearch")} /></label>
@@ -426,5 +430,5 @@ export function VocabularyPanel({ entries, status, loading, error, isDesktop, pe
       <button type="button" role="menuitem" onClick={() => { const entry = entries.find((item) => item.id === entryMenu.entryId); if (entry) editEntry(entry); }}><i className="fa-solid fa-pen" aria-hidden="true" />{t("vocabularyEdit")}</button>
       <button type="button" role="menuitem" className="is-danger" onClick={() => { const entry = entries.find((item) => item.id === entryMenu.entryId); if (entry) requestDelete(entry); }}><i className="fa-solid fa-trash" aria-hidden="true" />{t("vocabularyDelete")}</button>
     </div>}
-  </section>;
+  </fieldset>;
 }

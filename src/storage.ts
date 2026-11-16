@@ -93,7 +93,7 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
 function openQueryCache(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (!("indexedDB" in window)) return reject(new Error("IndexedDB is unavailable"));
-    const request = window.indexedDB.open(QUERY_CACHE_DATABASE, 1);
+    const request = window.indexedDB.open(`${QUERY_CACHE_DATABASE}-case-sensitive-v2`, 1);
     request.onupgradeneeded = () => {
       const database = request.result;
       if (!database.objectStoreNames.contains(QUERY_CACHE_STORE)) database.createObjectStore(QUERY_CACHE_STORE, { keyPath: "query" });
@@ -104,16 +104,18 @@ function openQueryCache(): Promise<IDBDatabase> {
 }
 
 function cacheKey(query: string): string {
-  return query.trim().toLocaleLowerCase();
+  return query.trim();
 }
 
 export async function readCachedQuery(query: string): Promise<QueryCacheRecord | null> {
   const key = cacheKey(query);
   if (!key) return null;
+  let database: IDBDatabase | undefined;
   try {
-    const database = await openQueryCache();
+    database = await openQueryCache();
     const transaction = database.transaction(QUERY_CACHE_STORE, "readonly");
     const done = transactionDone(transaction);
+    void done.catch(() => undefined);
     const record = await requestResult<QueryCacheRecord | undefined>(transaction.objectStore(QUERY_CACHE_STORE).get(key));
     await done;
     database.close();
@@ -121,47 +123,53 @@ export async function readCachedQuery(query: string): Promise<QueryCacheRecord |
     return record ?? null;
   } catch {
     return null;
-  }
+  } finally { database?.close(); }
 }
 
 async function touchCachedQuery(query: string): Promise<void> {
+  let database: IDBDatabase | undefined;
   try {
-    const database = await openQueryCache();
+    database = await openQueryCache();
     const transaction = database.transaction(QUERY_CACHE_STORE, "readwrite");
     const done = transactionDone(transaction);
+    void done.catch(() => undefined);
     const store = transaction.objectStore(QUERY_CACHE_STORE);
     const record = await requestResult<QueryCacheRecord | undefined>(store.get(query));
     if (record) store.put({ ...record, accessedAt: Date.now() });
     await done;
     database.close();
-  } catch { /* Cache access is optional. */ }
+  } catch { /* Cache access is optional. */ } finally { database?.close(); }
 }
 
 export async function cacheSourceResults(query: string, results: Partial<Record<SourceId, SourceLookupResult>>, limit: number): Promise<void> {
   const key = cacheKey(query);
   if (!key || !Object.keys(results).length) return;
+  let database: IDBDatabase | undefined;
   try {
-    const database = await openQueryCache();
+    database = await openQueryCache();
     const transaction = database.transaction(QUERY_CACHE_STORE, "readwrite");
     const done = transactionDone(transaction);
+    void done.catch(() => undefined);
     const store = transaction.objectStore(QUERY_CACHE_STORE);
     const previous = await requestResult<QueryCacheRecord | undefined>(store.get(key));
     store.put({ query: key, accessedAt: Date.now(), results: { ...(previous?.results ?? {}), ...results } } satisfies QueryCacheRecord);
     await done;
     database.close();
     await trimQueryCache(limit);
-  } catch { /* Cache failures never block lookup. */ }
+  } catch { /* Cache failures never block lookup. */ } finally { database?.close(); }
 }
 
 export async function trimQueryCache(limit: number): Promise<void> {
+  let database: IDBDatabase | undefined;
   try {
-    const database = await openQueryCache();
+    database = await openQueryCache();
     const transaction = database.transaction(QUERY_CACHE_STORE, "readwrite");
     const done = transactionDone(transaction);
+    void done.catch(() => undefined);
     const store = transaction.objectStore(QUERY_CACHE_STORE);
     const records = await requestResult<QueryCacheRecord[]>(store.getAll());
     records.sort((left, right) => right.accessedAt - left.accessedAt).slice(limit).forEach((record) => store.delete(record.query));
     await done;
     database.close();
-  } catch { /* Best effort. */ }
+  } catch { /* Best effort. */ } finally { database?.close(); }
 }

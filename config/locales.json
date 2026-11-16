@@ -231,7 +231,13 @@
     "youdaoNote": "在线内容经结构化提取后呈现；释义以原网页为准。",
     "dictionaryNote": "释义来自 English Wiktionary，依据 CC BY-SA 4.0 使用。",
     "merriamWebsterNote": "释义与发音来自 Merriam-Webster Collegiate Dictionary API。",
-    "genericOnlineNote": "在线内容经结构化提取后呈现；释义以原网页为准。"
+    "genericOnlineNote": "在线内容经结构化提取后呈现；释义以原网页为准。",
+    "homeEyebrow": "A WORLD IN A WORD",
+    "homeTitle": "词语之间，自有联结。",
+    "homeVocabulary": "收藏每一次发现",
+    "homeTranslation": "理解不止于单词",
+    "homeQuiz": "让新词成为熟悉",
+    "homeShortcuts": "你的学习空间"
   },
   "en": {
     "titlebarCaption": "Chinese–English Dictionary",
@@ -465,6 +471,12 @@
     "youdaoNote": "Online content is presented after structured extraction; refer to the original page for the source wording.",
     "dictionaryNote": "Definitions are sourced from English Wiktionary under CC BY-SA 4.0.",
     "merriamWebsterNote": "Definitions and audio are provided by the Merriam-Webster Collegiate Dictionary API.",
-    "genericOnlineNote": "Online content is presented after structured extraction; refer to the original page for the source wording."
+    "genericOnlineNote": "Online content is presented after structured extraction; refer to the original page for the source wording.",
+    "homeEyebrow": "A WORLD IN A WORD",
+    "homeTitle": "A world of words.",
+    "homeVocabulary": "Collect & remember",
+    "homeTranslation": "Understand in context",
+    "homeQuiz": "Make words your own",
+    "homeShortcuts": "Your learning space"
   }
 }

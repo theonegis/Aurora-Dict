@@ -5,19 +5,18 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, File},
-    io::Write,
+    fs,
     net::TcpListener,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex, OnceLock,
+        Arc, Mutex, OnceLock,
     },
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}, sync::{Mutex as AsyncMutex, OwnedMutexGuard}};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -180,7 +179,7 @@ struct LlmRuntime {
 
 pub struct LlmManager {
     runtime: Mutex<Option<LlmRuntime>>,
-    startup: AsyncMutex<()>,
+    startup: Arc<AsyncMutex<()>>,
     downloading: AtomicBool,
 }
 
@@ -188,20 +187,22 @@ impl Default for LlmManager {
     fn default() -> Self {
         Self {
             runtime: Mutex::new(None),
-            startup: AsyncMutex::new(()),
+            startup: Arc::new(AsyncMutex::new(())),
             downloading: AtomicBool::new(false),
         }
     }
 }
 
-impl Drop for LlmManager {
+impl Drop for LlmRuntime {
     fn drop(&mut self) {
-        if let Ok(runtime) = self.runtime.get_mut() {
-            if let Some(mut runtime) = runtime.take() {
-                let _ = runtime.child.kill();
-            }
-        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
+}
+
+struct DownloadGuard<'a>(&'a AtomicBool);
+impl Drop for DownloadGuard<'_> {
+    fn drop(&mut self) { self.0.store(false, Ordering::Release); }
 }
 
 fn model_definition(model_id: &str) -> Result<ModelDefinition, String> {
@@ -376,9 +377,8 @@ pub async fn download_llm_model(
     if manager.downloading.swap(true, Ordering::AcqRel) {
         return Err("已有本地模型正在下载，请等待其完成。".into());
     }
-    let result = download_model(&app, model, download_source.as_deref()).await;
-    manager.downloading.store(false, Ordering::Release);
-    result
+    let _download = DownloadGuard(&manager.downloading);
+    download_model(&app, model, download_source.as_deref()).await
 }
 
 async fn download_model(
@@ -441,32 +441,20 @@ async fn download_model_from_url(
     }
     let temporary = destination.with_extension("gguf.part");
     let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .user_agent("AuroraDictionary/0.1 local-llm downloader")
         .timeout(Duration::from_secs(60 * 30))
         .build()
         .map_err(|error| format!("无法初始化模型下载：{error}"))?;
-    let mut response = client
-        .get(download_url)
-        .send()
-        .await
-        .map_err(|error| format!("无法下载 {}：{error}", model.name))?
-        .error_for_status()
-        .map_err(|error| format!("无法下载 {}：{error}", model.name))?;
+    let (mut response, expected_sha256) = model_download_response(&client, download_url).await?;
+    if response.status() != StatusCode::OK { return Err("模型服务器未返回完整文件。".into()); }
     let total_bytes = response
         .content_length()
         .or_else(|| numeric_header(response.headers(), CONTENT_LENGTH.as_str()))
         .or_else(|| numeric_header(response.headers(), "x-linked-size"))
         .or_else(|| content_range_total(response.headers()));
-    let expected_sha256 = response
-        .headers()
-        .get(ETAG)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.trim_matches('"').to_ascii_lowercase())
-        .filter(|value| {
-            value.len() == 64 && value.chars().all(|character| character.is_ascii_hexdigit())
-        });
     let mut file =
-        File::create(&temporary).map_err(|error| format!("无法写入模型文件：{error}"))?;
+        File::create(&temporary).await.map_err(|error| format!("无法写入模型文件：{error}"))?;
     let mut digest = Sha256::new();
     let mut downloaded_bytes = 0_u64;
     let _ = app.emit(
@@ -483,7 +471,7 @@ async fn download_model_from_url(
         .await
         .map_err(|error| format!("下载模型时连接中断：{error}"))?
     {
-        file.write_all(&chunk)
+        file.write_all(&chunk).await
             .map_err(|error| format!("无法写入模型文件：{error}"))?;
         digest.update(&chunk);
         downloaded_bytes += chunk.len() as u64;
@@ -497,16 +485,25 @@ async fn download_model_from_url(
             },
         );
     }
-    file.flush()
+    file.flush().await
         .map_err(|error| format!("无法完成模型写入：{error}"))?;
-    if let Some(expected) = expected_sha256 {
+    file.sync_all().await.map_err(|error| format!("无法完成模型写入：{error}"))?;
+    drop(file);
+    if total_bytes.is_some_and(|total| total != downloaded_bytes) || downloaded_bytes < 4 {
+        return Err("模型下载不完整，请重试。".into());
+    }
+    let mut magic = [0; 4];
+    File::open(&temporary).await.map_err(|error| error.to_string())?.read_exact(&mut magic).await.map_err(|error| error.to_string())?;
+    if &magic != b"GGUF" { return Err("下载文件不是 GGUF 模型。".into()); }
+    {
+        let expected = expected_sha256;
         let actual = format!("{:x}", digest.finalize());
         if actual != expected {
-            let _ = fs::remove_file(&temporary);
+            let _ = tokio::fs::remove_file(&temporary).await;
             return Err("模型文件校验失败，下载已取消。".into());
         }
     }
-    fs::rename(&temporary, &destination).map_err(|error| format!("无法保存模型文件：{error}"))?;
+    tokio::fs::rename(&temporary, &destination).await.map_err(|error| format!("无法保存模型文件：{error}"))?;
     let _ = app.emit(
         DOWNLOAD_EVENT,
         DownloadProgress {
@@ -516,6 +513,55 @@ async fn download_model_from_url(
             complete: true,
         },
     );
+    Ok(())
+}
+
+fn sha256_header(headers: &reqwest::header::HeaderMap, name: &str) -> Option<String> {
+    let value = headers.get(name)?.to_str().ok()?.trim_matches('"').to_ascii_lowercase();
+    (value.len() == 64 && value.bytes().all(|c| c.is_ascii_hexdigit())).then_some(value)
+}
+
+async fn model_download_response(client: &Client, url: &str) -> Result<(reqwest::Response, String), String> {
+    let mut url = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
+    let scheme = url.scheme().to_owned();
+    let mut file_hash = None;
+    for hop in 0..10 {
+        let response = client.get(url.clone()).send().await.map_err(|_| "无法连接模型下载源。")?;
+        // The resolve response identifies the LFS file; a redirected CDN ETag may identify a storage object instead.
+        if file_hash.is_none() {
+            file_hash = sha256_header(response.headers(), "x-linked-etag")
+                .or_else(|| if hop == 0 { sha256_header(response.headers(), ETAG.as_str()) } else { None });
+        }
+        if response.status().is_redirection() {
+            let location = response.headers().get(reqwest::header::LOCATION).and_then(|value| value.to_str().ok()).ok_or("模型下载缺少跳转地址。")?;
+            url = url.join(location).map_err(|_| "模型下载跳转地址无效。")?;
+            if url.scheme() != scheme { return Err("模型下载拒绝降低连接安全性。".into()); }
+            continue;
+        }
+        let response = response.error_for_status().map_err(|_| "模型下载源暂时不可用。")?;
+        return Ok((response, file_hash.ok_or("下载源未提供文件 SHA-256，无法验证模型。")?));
+    }
+    Err("模型下载跳转次数过多。".into())
+}
+
+fn stream_completion(line: &[u8]) -> Result<bool, String> {
+    let Ok(line) = std::str::from_utf8(line) else { return Ok(false) };
+    let Some(data) = line.trim().strip_prefix("data:") else { return Ok(false) };
+    if data.trim() == "[DONE]" { return Ok(true); }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(data.trim()) else { return Ok(false) };
+    let reason = value["choices"][0]["finish_reason"].as_str();
+    match reason {
+        Some("stop") => Ok(true),
+        Some(_) => Err("本地 AI 输出未完整结束，请缩短输入后重试。".into()),
+        None => Ok(false),
+    }
+}
+
+fn validate_context_budget(system: &str, prompt: &str, output_tokens: u16) -> Result<(), String> {
+    // UTF-8 bytes conservatively bound the byte-level tokenizer, with template headroom.
+    if system.len() + prompt.len() + usize::from(output_tokens) + 512 > 8192 {
+        return Err("输入和系统提示词超过本地模型上下文容量，请缩短后重试。".into());
+    }
     Ok(())
 }
 
@@ -536,20 +582,23 @@ fn content_range_total(headers: &reqwest::header::HeaderMap) -> Option<u64> {
 }
 
 #[tauri::command]
-pub fn delete_llm_model(
+pub async fn delete_llm_model(
     app: AppHandle,
     manager: State<'_, LlmManager>,
     model_id: String,
 ) -> Result<(), String> {
     let model = model_definition(&model_id)?;
+    let _lease = manager.startup.lock().await;
+    if manager.downloading.swap(true, Ordering::AcqRel) {
+        return Err("模型正在下载，请等待完成后删除。".into());
+    }
+    let _download = DownloadGuard(&manager.downloading);
     if let Ok(mut runtime) = manager.runtime.lock() {
         if runtime
             .as_ref()
             .is_some_and(|current| current.model_id == model.id)
         {
-            if let Some(mut current) = runtime.take() {
-                let _ = current.child.kill();
-            }
+            drop(runtime.take());
         }
     }
     let path = model_path(&app, model)?;
@@ -954,6 +1003,7 @@ async fn complete_local_request(
     temperature: f32,
     started: Instant,
 ) -> Result<CompletionResult, String> {
+    validate_context_budget(system, user_prompt, max_tokens)?;
     let payload = ChatRequest {
         model: "local-qwen",
         messages: vec![
@@ -1004,6 +1054,7 @@ async fn complete_local_request(
     let mut first_token_ms = None;
     let mut timings = None;
     let mut saw_stream_data = false;
+    let mut completed = false;
     while let Some(chunk) = response
         .chunk()
         .await
@@ -1013,6 +1064,7 @@ async fn complete_local_request(
         pending.extend_from_slice(&chunk);
         while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
             let line = pending.drain(..=newline).collect::<Vec<_>>();
+            completed |= stream_completion(&line)?;
             saw_stream_data |= process_stream_line(
                 &line,
                 app,
@@ -1028,6 +1080,7 @@ async fn complete_local_request(
         }
     }
     if !pending.is_empty() {
+        completed |= stream_completion(&pending)?;
         saw_stream_data |= process_stream_line(
             &pending,
             app,
@@ -1041,6 +1094,7 @@ async fn complete_local_request(
             &mut timings,
         )?;
     }
+    if saw_stream_data && !completed { return Err("本地 AI 响应提前结束，请重试。".into()); }
     if !saw_stream_data {
         let response: ChatResponse = serde_json::from_slice(&full_response)
             .map_err(|error| format!("无法解析本地 AI 响应：{error}"))?;
@@ -1223,12 +1277,7 @@ fn visible_stream_content(content: &str) -> String {
 }
 
 fn strip_thinking_content(content: &str) -> String {
-    let content = content.trim();
-    let without_thinking = content
-        .rsplit_once("</think>")
-        .map(|(_, answer)| answer)
-        .unwrap_or(content);
-    clean_answer(without_thinking)
+    visible_stream_content(content)
 }
 
 // Stop a broken inference stream before it fills the UI or enters the query cache.
@@ -1260,6 +1309,7 @@ fn clean_answer(content: &str) -> String {
 }
 
 struct ServerConnection {
+    _lease: OwnedMutexGuard<()>,
     base_url: String,
     cold_start: bool,
     startup_ms: u64,
@@ -1272,23 +1322,8 @@ async fn ensure_server(
     model_path: &Path,
 ) -> Result<ServerConnection, String> {
     let started = Instant::now();
-    {
-        let mut runtime = manager
-            .runtime
-            .lock()
-            .map_err(|_| "本地 AI 运行状态不可用。".to_string())?;
-        if let Some(current) = runtime.as_mut() {
-            let running = current.child.try_wait().ok().flatten().is_none();
-            if running && current.model_id == model.id {
-                return Ok(ServerConnection {
-                    base_url: current.base_url.clone(),
-                    cold_start: false,
-                    startup_ms: elapsed_millis(started),
-                });
-            }
-        }
-    }
-    let _startup_guard = manager.startup.lock().await;
+    // Keep this lease through the entire request so another model cannot kill it.
+    let lease = manager.startup.clone().lock_owned().await;
     let previous = {
         let mut runtime = manager
             .runtime
@@ -1298,6 +1333,7 @@ async fn ensure_server(
             let running = current.child.try_wait().ok().flatten().is_none();
             if running && current.model_id == model.id {
                 return Ok(ServerConnection {
+                    _lease: lease,
                     base_url: current.base_url.clone(),
                     cold_start: false,
                     startup_ms: elapsed_millis(started),
@@ -1306,9 +1342,7 @@ async fn ensure_server(
         }
         runtime.take()
     };
-    if let Some(mut previous) = previous {
-        let _ = previous.child.kill();
-    }
+    drop(previous);
     let engine = runnable_engine(app)?;
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|error| format!("无法分配本地 AI 端口：{error}"))?;
@@ -1338,7 +1372,7 @@ async fn ensure_server(
             "--port",
             &port.to_string(),
             "--ctx-size",
-            "2048",
+            "8192",
             "--parallel",
             "1",
             "--jinja",
@@ -1348,17 +1382,18 @@ async fn ensure_server(
         .stderr(Stdio::null());
     #[cfg(target_os = "windows")]
     command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    let mut child = command
+    let child = command
         .spawn()
         .map_err(|error| format!("无法启动本地 AI 引擎：{error}"))?;
     let base_url = format!("http://127.0.0.1:{port}");
+    let mut pending_runtime = LlmRuntime { model_id: model.id.into(), base_url: base_url.clone(), child };
     let client = Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(1))
         .build()
         .map_err(|error| format!("无法检查本地 AI 引擎：{error}"))?;
     for _ in 0..120 {
-        if let Some(status) = child
+        if let Some(status) = pending_runtime.child
             .try_wait()
             .map_err(|error| format!("无法读取本地 AI 引擎状态：{error}"))?
         {
@@ -1376,12 +1411,9 @@ async fn ensure_server(
                 .runtime
                 .lock()
                 .map_err(|_| "本地 AI 运行状态不可用。".to_string())?;
-            *runtime = Some(LlmRuntime {
-                model_id: model.id.into(),
-                base_url: base_url.clone(),
-                child,
-            });
+            *runtime = Some(pending_runtime);
             return Ok(ServerConnection {
+                    _lease: lease,
                 base_url,
                 cold_start: true,
                 startup_ms: elapsed_millis(started),
@@ -1389,7 +1421,6 @@ async fn ensure_server(
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
-    let _ = child.kill();
     Err("本地 AI 引擎启动超时。请确认模型文件完整，或重新下载模型。".into())
 }
 
@@ -1401,6 +1432,46 @@ mod tests {
         translation_needs_retry, translation_user_prompt, visible_stream_content, LlamaTimings,
         TranslationDirection,
     };
+
+    #[test]
+    fn model_download_uses_resolve_hash_across_cdn_redirects() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let hash = "a".repeat(64);
+        let expected = hash.clone();
+        let server = std::thread::spawn(move || {
+            for index in 0..2 {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut request = [0; 2048]; let _ = socket.read(&mut request);
+                let response = if index == 0 {
+                    format!("HTTP/1.1 302 Found\r\nLocation: /cdn\r\nx-linked-etag: \"{}\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", hash)
+                } else { "HTTP/1.1 200 OK\r\nETag: \"cdn-object-id\"\r\nContent-Length: 4\r\nConnection: close\r\n\r\nGGUF".to_string() };
+                socket.write_all(response.as_bytes()).unwrap();
+            }
+        });
+        tauri::async_runtime::block_on(async {
+            let client = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none()).build().unwrap();
+            let (response, actual) = super::model_download_response(&client, &format!("http://{address}/resolve")).await.unwrap();
+            assert_eq!(actual, expected); assert_eq!(response.bytes().await.unwrap().as_ref(), b"GGUF");
+        });
+        server.join().unwrap();
+    }
+    #[test]
+    fn rejects_unfinished_thinking_and_truncated_streams() {
+        assert_eq!(strip_thinking_content("<think>private reasoning"), "");
+        assert!(!super::stream_completion(b"data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}").unwrap());
+        assert!(super::stream_completion(b"data: [DONE]").unwrap());
+        assert!(super::stream_completion(b"data: {\"choices\":[{\"finish_reason\":\"length\"}]}").is_err());
+    }
+    #[test]
+    fn resets_download_on_scope_exit_and_bounds_context() {
+        let flag = std::sync::atomic::AtomicBool::new(true);
+        { let _guard = super::DownloadGuard(&flag); }
+        assert!(!flag.load(std::sync::atomic::Ordering::Acquire));
+        assert!(super::validate_context_budget("Translate", "hello", 1024).is_ok());
+        assert!(super::validate_context_budget("Translate", &"汉".repeat(4000), 1024).is_err());
+    }
 
     #[test]
     fn memory_tip_cannot_introduce_unverified_english_words() {

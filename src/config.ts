@@ -23,9 +23,9 @@ export const localModels: Array<{ id: LocalModelId; name: string; description: C
 export const themes: Array<{ id: ThemeId; label: CopyKey; color: string }> = [
   { id: "red", label: "themeRed", color: "#df5d68" }, { id: "orange", label: "themeOrange", color: "#eb8c43" },
   { id: "yellow", label: "themeYellow", color: "#d9a91c" }, { id: "green", label: "themeGreen", color: "#49a86e" },
-  { id: "cyan", label: "themeCyan", color: "#36a8b4" }, { id: "blue", label: "themeBlue", color: "#4e86d8" },
+  { id: "cyan", label: "themeCyan", color: "#087977" }, { id: "blue", label: "themeBlue", color: "#4e86d8" },
   { id: "purple", label: "themePurple", color: "#706bdd" }, { id: "violet", label: "themeViolet", color: "#9a67cd" },
-  { id: "black", label: "themeBlack", color: "#22232c" },
+  { id: "black", label: "themeBlack", color: "#112831" },
 ];
 
 export const SYSTEM_FONT_ID = "system";

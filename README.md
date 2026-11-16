@@ -1,8 +1,14 @@
-# Aurora Dict
+# Aurora Dict 2.2
 
 Aurora Dict 是一款为 Linux 用户而做、也同样适用于 macOS 与 Windows 的中英桌面词典。macOS 版本最低支持 macOS 15 Sequoia。
 
 许多 Linux 上可用的词典要么界面陈旧，要么必须依赖网页或复杂的导入流程。这个项目希望提供另一种体验：打开即可使用的离线词库、清晰可靠的中英查询，以及一个安静、精致、不打扰阅读的桌面界面。它使用 Tauri 2 构建，前端采用 React、TypeScript 与 Vite；在保持轻量的同时，将 iOS 的卡片层次与 Windows Mica 的半透明质感带到桌面端。
+
+## 主页
+
+![Aurora Dict 2.2 桌面主页](assets/screenshots/desktop-home-2.2.png)
+
+青绿渐变、轻量玻璃导航和清晰的阅读卡片，与 Aurora Dict 移动版保持一致的视觉语言。
 
 ## 特性
 
@@ -12,13 +18,26 @@ Aurora Dict 是一款为 Linux 用户而做、也同样适用于 macOS 与 Windo
 - 五个可配置来源：本地 ECDICT、本地 LLM、有道词典、[FreeDictionaryAPI.com](https://freedictionaryapi.com/) 与 [Merriam-Webster API](https://dictionaryapi.com/)；最多同时启用四个，默认启用前四个。
 - 每次查询会并行获取并缓存启用来源的结果；默认保存最近 100 个单词，可在设置中调整。
 - 独立 SQLite 生词本：查询结果或选中文本可加入，释义、例句与笔记可在生词本中使用 Markdown 编辑；支持自定义保存路径、打开、导入和导出，方便跨设备拷贝使用。
+- 局域网生词本同步：电脑与 iOS / Android 首次扫码配对，手机打开或回到前台后自动同步；支持双向增删改、断线重试、设备撤销及冲突版本保留。
+- 单词记忆图谱：结合在线词源、词义关系和本地拼写相似词，帮助建立记忆联系；本地 AI 可辅助生成记忆提示。
+- 本地 AI 背单词：用生词本生成中英句子填空和四选一练习，支持题量设置、答题解释与错词回顾。
 - 可调中英文界面、主题色、字体、缩放、透明度与材质模糊度。
 
 有道词典与 FreeDictionaryAPI.com 不需要 API Key；Merriam-Webster 需要用户在设置页填写自己的 API Key。FreeDictionaryAPI.com 使用 English Wiktionary 的结构化数据（CC BY-SA 4.0）；网络不可用时，本地词典仍可独立工作。
 
+## 手机与电脑同步
+
+1. 电脑打开「设置 → 词典 → 设备与同步」，启用局域网同步并生成二维码。
+2. 手机与电脑连接同一局域网，在移动版「设置 → 设备与同步」扫码，也可以粘贴配对信息。
+3. 保持电脑应用运行，手机开启「打开 App 自动同步」。之后打开或恢复手机应用即可同步，也可手动点「立即同步」。
+
+配对码有效期为 5 分钟，一次邀请仅绑定一台设备。传输使用 HTTPS 和配对时固定的证书指纹，不需要云端账户。双方同时修改同一单词时保留两个版本，由用户选择；删除也会同步。导入或切换生词本后需重新配对。
+
+如果自动发现失败，可在电脑填写本机局域网 IP 后重新生成配对码。Windows/macOS 防火墙需要允许 Aurora Dict 在**专用局域网**接收入站连接；访客 Wi-Fi 或设备隔离可能阻止互通。手机退出后不承诺常驻后台同步。此版本不包含桌面视频例句功能。
+
 ## 开发
 
-前提：Node.js 20+、Rust（MSRV 1.77.2），以及目标平台所需的 [Tauri 依赖](https://v2.tauri.app/start/prerequisites/)。
+前提：Node.js 20+、当前稳定版 Rust（锁定依赖以 Cargo.lock 为准），以及目标平台所需的 [Tauri 依赖](https://v2.tauri.app/start/prerequisites/)。
 
 ```bash
 npm install
@@ -60,8 +79,8 @@ npm run tauri build
 推送新的 Git tag（或手动运行 Actions）会触发 [发布工作流](.github/workflows/release.yml)。工作流先创建草稿 Release，只有所有平台均构建成功才会公开发布：
 
 ```Shell
-git tag -a v2.1.0 -m "Aurora Dict v2.1.0"
-git push origin v2.1.0
+git tag -a v2.2.0 -m "Aurora Dict v2.2.0"
+git push origin v2.2.0
 ```
 
 - macOS ARM64 与 x64 `.dmg`；

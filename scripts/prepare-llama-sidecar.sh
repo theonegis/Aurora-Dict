@@ -151,12 +151,12 @@ cmake_args=(
   -DGGML_OPENMP=OFF
 )
 case "$target" in
-  aarch64-apple-darwin) cmake_args+=( -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DGGML_METAL=ON ) ;;
-  x86_64-apple-darwin) cmake_args+=( -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DGGML_METAL=ON ) ;;
+  aarch64-apple-darwin) cmake_args+=( -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DGGML_METAL=ON ) ;;
+  x86_64-apple-darwin) cmake_args+=( -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DGGML_METAL=ON ) ;;
 esac
 
 cmake "${cmake_args[@]}"
-cmake --build "$build_dir" --config Release --target llama-server --parallel
+cmake --build "$build_dir" --config Release --target llama-server --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-4}"
 
 built_binary="$build_dir/bin/llama-server"
 if [[ "$target" == *-pc-windows-msvc ]]; then

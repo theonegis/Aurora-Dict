@@ -1,0 +1,21 @@
+[package]
+name = "aurora-sync"
+version = "0.1.0"
+edition = "2021"
+license = "PolyForm-Noncommercial-1.0.0"
+[dependencies]
+aurora-core = { path = "../aurora-core" }
+axum = "0.7"
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = "0.13"
+mdns-sd = "0.13"
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+tempfile = "3"
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }

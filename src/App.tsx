@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -9,6 +10,7 @@ import { getSystemFonts } from "tauri-plugin-system-fonts-api";
 import { Icon } from "./Icon";
 import { pushGraphLookup, takePreviousLookup } from "./lookupNavigation";
 import type { LookupLocation } from "./lookupNavigation";
+import { LanSyncSettings } from "./LanSyncSettings";
 import { VocabularyPanel } from "./VocabularyPanel";
 import { VocabularyQuiz } from "./VocabularyQuiz";
 import { WordGraphPanel } from "./WordGraph";
@@ -406,7 +408,11 @@ function LlmCard({ result, query, streaming, addVocabulary, added, t }: { result
 
 function EmptyState({ source, query, t }: { source: SourceId; query: string; t: Translator }) {
   const local = source === "local";
-  return <div className="empty-state"><div className="empty-orbit"><span /><Icon name={local ? "book" : "globe"} size={28} /></div><h2>{query ? t("noMatch") : t("startWord")}</h2><p>{local ? t("localEmpty") : t("onlineEmpty")}</p></div>;
+  return <div className={`empty-state${query ? "" : " is-start"}`}>
+    {query && <div className="empty-orbit" aria-hidden="true"><Icon name={local ? "book" : "globe"} size={28} /></div>}
+    <div className="start-copy">{!query && <span className="start-eyebrow">{t("homeEyebrow")}</span>}<h2>{query ? t("noMatch") : t("homeTitle")}</h2>{!query && <span className="start-caption">{t("startWord")}</span>}</div>
+    {!query && <div className="start-orb" aria-hidden="true" />}
+  </div>;
 }
 
 function ResultStage({ state, retry, toggleExpanded, setYoudaoSection, addVocabulary, vocabularyWords, t }: { state: AppState; retry: () => void; toggleExpanded: (key: string) => void; setYoudaoSection: (section: string) => void; addVocabulary: (entry: VocabularyEntryInput) => void; vocabularyWords: Set<string>; t: Translator }) {
@@ -424,8 +430,8 @@ function ResultStage({ state, retry, toggleExpanded, setYoudaoSection, addVocabu
   return <EmptyState source={state.source} query={state.query} t={t} />;
 }
 
-function DictionaryPanel({ state, activeSources, inputValue, setInputValue, suggestions, submit, graphLookup, selectSource, ensureSource, retry, toggleExpanded, setYoudaoSection, addVocabulary, vocabularyWords, t }: {
-  state: AppState; activeSources: typeof sources; inputValue: string; setInputValue: (value: string) => void; suggestions: LocalSuggestions | null; submit: (value: string) => void; graphLookup: (value: string) => void; selectSource: (source: SourceId) => void; ensureSource: (source: SourceId) => void; retry: () => void; toggleExpanded: (key: string) => void; setYoudaoSection: (section: string) => void; addVocabulary: (entry: VocabularyEntryInput) => void; vocabularyWords: Set<string>; t: Translator;
+function DictionaryPanel({ setPanel, state, activeSources, inputValue, setInputValue, suggestions, submit, graphLookup, selectSource, ensureSource, retry, toggleExpanded, setYoudaoSection, addVocabulary, vocabularyWords, t }: {
+  setPanel: (panel: PanelId) => void; state: AppState; activeSources: typeof sources; inputValue: string; setInputValue: (value: string) => void; suggestions: LocalSuggestions | null; submit: (value: string) => void; graphLookup: (value: string) => void; selectSource: (source: SourceId) => void; ensureSource: (source: SourceId) => void; retry: () => void; toggleExpanded: (key: string) => void; setYoudaoSection: (section: string) => void; addVocabulary: (entry: VocabularyEntryInput) => void; vocabularyWords: Set<string>; t: Translator;
 }) {
   const handleSubmit = (event: FormEvent) => { event.preventDefault(); submit(inputValue); };
   return <>
@@ -435,6 +441,15 @@ function DictionaryPanel({ state, activeSources, inputValue, setInputValue, sugg
     <section className="source-section" aria-label={t("selectSource")}><div className="source-switcher" style={{ "--source-count": activeSources.length } as CSSProperties}>{activeSources.map((source) => <button className={`source-tab ${state.source === source.id ? "is-active" : ""}`} key={source.id} type="button" onClick={() => { selectSource(source.id); ensureSource(source.id); }}><span className="source-tab-title">{t(source.title)}</span><span className="source-tab-caption">{t(source.subtitle)}</span></button>)}</div>
     </section>
     <section className="results-stage" aria-live="polite"><ResultStage state={state} retry={retry} toggleExpanded={toggleExpanded} setYoudaoSection={setYoudaoSection} addVocabulary={addVocabulary} vocabularyWords={vocabularyWords} t={t} /></section>
+    {!state.query && <section className="home-shortcuts" aria-label={t("homeShortcuts")}>
+      {([
+        ["vocabulary", "fa-book-bookmark", "quickVocabularyTip", "homeVocabulary"],
+        ["translation", "fa-language", "quickTranslationTip", "homeTranslation"],
+        ["quiz", "fa-graduation-cap", "quizTitle", "homeQuiz"],
+      ] as const).map(([panel, icon, title, caption]) => <button type="button" className="home-shortcut" key={panel} onClick={() => setPanel(panel)}>
+        <i className={`fa-solid ${icon}`} aria-hidden="true" /><span><b>{t(title)}</b><small>{t(caption)}</small></span>
+      </button>)}
+    </section>}
     {state.query && <WordGraphPanel key={state.query} query={state.query} modelId={state.settings.localModel} modelReady={Boolean(state.llmStatus?.engineAvailable && state.llmStatus.models.some((model) => model.modelId === state.settings.localModel && model.installed))} onLookup={graphLookup} t={t} />}
   </>;
 }
@@ -557,7 +572,7 @@ function SettingsPanel({ state, fonts, updateSettings, setTab, setPanel, downloa
       <button className={`settings-category-tab ${state.settingsTab === "dictionary" ? "is-active" : ""}`} onClick={() => setTab("dictionary")} type="button" role="tab" aria-selected={state.settingsTab === "dictionary"}><i className="fa-solid fa-book" aria-hidden="true" /><span>{t("dictionarySettings")}</span></button>
       <button className={`settings-category-tab ${state.settingsTab === "software" ? "is-active" : ""}`} onClick={() => setTab("software")} type="button" role="tab" aria-selected={state.settingsTab === "software"}><i className="fa-solid fa-circle-info" aria-hidden="true" /><span>{t("softwareInformation")}</span></button>
     </nav>
-    {state.settingsTab === "appearance" && <section className="settings-module settings-card settings-card-first" role="tabpanel" aria-labelledby="appearance-section-title"><h3 id="appearance-section-title" className="settings-module-heading">{t("appearance")}</h3>
+    {state.settingsTab === "appearance" && <section className="settings-module settings-card settings-card-first" role="tabpanel" aria-labelledby="appearance-section-title"><h3 id="appearance-section-title" className="sr-only">{t("appearance")}</h3>
       <section className="settings-section font-section language-section"><label className="settings-label" htmlFor="ui-language"><span>{t("uiLanguage")}</span><small>{settings.language === "zh" ? t("chinese") : t("english")}</small></label><div className="native-select-wrap"><select id="ui-language" className="settings-select" value={settings.language} onChange={(event) => updateSettings((current) => ({ ...current, language: event.target.value === "en" ? "en" : "zh" }))} aria-label={t("uiLanguage")}><option value="zh">{t("chinese")}</option><option value="en">{t("english")}</option></select><i className="native-select-icon fa-solid fa-chevron-down" aria-hidden="true" /></div></section>
       <section className="settings-section theme-section"><div className="settings-label"><span>{t("interfaceTheme")}</span><small>{t(themes.find((item) => item.id === settings.theme)?.label ?? "themePurple")}</small></div><div className="theme-grid" role="radiogroup" aria-label={t("interfaceTheme")}>{themes.map((theme) => <button className={`theme-swatch ${settings.theme === theme.id ? "is-selected" : ""}`} key={theme.id} onClick={() => updateSettings((current) => ({ ...current, theme: theme.id }))} role="radio" aria-checked={settings.theme === theme.id} title={t(theme.label)}><i style={{ "--swatch": theme.color } as CSSProperties} /><span>{t(theme.label)}</span></button>)}</div></section>
       <section className="settings-section font-section"><label className="settings-label" htmlFor="ui-font"><span>{t("interfaceFont")}</span><small>{resolvedFonts.find((item) => item.id === settings.font)?.label ?? t("systemDefault")}</small></label><div className="native-select-wrap"><select id="ui-font" className="settings-select" value={settings.font} onChange={(event) => updateSettings((current) => ({ ...current, font: event.target.value }))} aria-label={t("interfaceFont")}>{resolvedFonts.map((font) => <option value={font.id} key={font.id}>{font.label}</option>)}</select><i className="native-select-icon fa-solid fa-chevron-down" aria-hidden="true" /></div></section>
@@ -587,6 +602,7 @@ function SettingsPanel({ state, fonts, updateSettings, setTab, setPanel, downloa
       </div></section>
       <section className="settings-section font-section"><label className="settings-label" htmlFor="ui-cache-limit"><span>{t("cacheStorage")}</span><small>{formatText(t, "cacheWords", { count: String(settings.cacheLimit) })}</small></label><div className="native-select-wrap"><select id="ui-cache-limit" className="settings-select" value={settings.cacheLimit} onChange={(event) => updateSettings((current) => ({ ...current, cacheLimit: normaliseCacheLimit(Number(event.target.value)) }))} aria-label={t("cacheStorage")}>{CACHE_LIMIT_OPTIONS.map((limit) => <option value={limit} key={limit}>{formatText(t, "cacheWords", { count: String(limit) })}</option>)}</select><i className="native-select-icon fa-solid fa-chevron-down" aria-hidden="true" /></div></section>
     </section>}
+    {state.settingsTab === "dictionary" && <LanSyncSettings english={settings.language === "en"} />}
     {state.settingsTab === "software" && <section className="settings-module settings-card software-information" role="tabpanel" aria-labelledby="software-section-title"><h3 id="software-section-title" className="settings-module-heading">{t("softwareInformation")}</h3><dl className="software-information-list"><div><dt>{t("author")}</dt><dd>TheOneGIS</dd></div><div><dt>{t("contact")}</dt><dd><a href="mailto:614106917@qq.com">614106917@qq.com</a></dd></div><div><dt>{t("homepage")}</dt><dd><a href={homepageUrl} onClick={(event) => { event.preventDefault(); openExternalUrl(homepageUrl); }}>{homepageUrl}</a></dd></div><div className="license-row"><dt>{t("license")}</dt><dd>{t("licenseText")}</dd></div></dl>
       <section className="donation-section" aria-labelledby="support-author-title"><div className="donation-copy"><h4 id="support-author-title">{t("supportAuthor")}</h4><p>{t("supportMessage")}</p></div><div className="donation-codes"><figure><img src={wechatDonationUrl} alt={t("wechatPay")} loading="lazy" /><figcaption><i className="fa-brands fa-weixin" aria-hidden="true" />{t("wechatPay")}</figcaption></figure><figure><img src={alipayDonationUrl} alt={t("alipayPay")} loading="lazy" /><figcaption><i className="fa-solid fa-qrcode" aria-hidden="true" />{t("alipayPay")}</figcaption></figure></div></section>
     </section>}
@@ -637,6 +653,9 @@ export default function App() {
   const stateRef = useRef(state);
   const contentPanelRef = useRef<HTMLDivElement>(null);
   const lookupSerial = useRef(0);
+  const vocabularyRevision = useRef(0);
+  const vocabularyRefreshActive = useRef(false);
+  const lookupHydration = useRef<{ serial: number; requested: Set<SourceId> } | null>(null);
   const suggestionSerial = useRef(0);
   const suggestionCache = useRef(new Map<string, LocalSuggestions>());
   const scrollTimer = useRef<number | undefined>(undefined);
@@ -673,6 +692,11 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri()) return;
+    void invoke("sync_window_surface", { dark: state.settings.theme === "black" }).catch(console.error);
+  }, [state.settings.theme]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
     let cancelled = false;
     let stopListening: (() => void) | undefined;
     const appWindow = getCurrentWindow();
@@ -696,6 +720,9 @@ export default function App() {
         new Promise<void>((resolve) => window.setTimeout(resolve, 250)),
       ]);
       if (cancelled) return;
+      // Match the native underlay before the first visible frame, including a
+      // saved dark theme. Later theme changes update it through the effect above.
+      await invoke("sync_window_surface", { dark: stateRef.current.settings.theme === "black" });
       await appWindow.show();
       await appWindow.setFocus();
     };
@@ -755,9 +782,15 @@ export default function App() {
   }, []);
 
   const updateSettings = useCallback<SettingsUpdater>((updater) => {
+    const settings = updater(stateRef.current.settings);
+    const previous = stateRef.current.settings;
+    const lookupChanged = settings.localModel !== previous.localModel || settings.dictionarySystemPrompt !== previous.dictionarySystemPrompt;
+    const translationChanged = settings.localModel !== previous.localModel || settings.translationSystemPrompt !== previous.translationSystemPrompt;
+    if (lookupChanged) { lookupSerial.current++; lookupHydration.current = null; activeLookupStream.current = null; delete latestStreamUpdates.current.lookup; }
+    if (translationChanged) { activeTranslationStream.current = null; delete latestStreamUpdates.current.translation; }
+    stateRef.current = { ...stateRef.current, settings };
     setSettingsSaved(false);
     setState((current) => {
-      const settings = updater(current.settings);
       if (settings === current.settings) return current;
       const visible = activeSourcesFor(settings);
       const source = visible.some((item) => item.id === current.source) ? current.source : visible[0].id;
@@ -766,11 +799,13 @@ export default function App() {
       const sourceResults = { ...current.sourceResults };
       const sourceErrors = { ...current.sourceErrors };
       if (llmChanged) { delete sourceResults.local_llm; delete sourceErrors.local_llm; }
-      return { ...current, settings, source, sourceResults, sourceErrors, llmActionError: settings.localModel !== current.settings.localModel ? null : current.llmActionError, translationResult: translationChanged ? null : current.translationResult, translationError: translationChanged ? "" : current.translationError };
+      return { ...current, settings, source, sourceResults, sourceErrors, pendingSources: lookupChanged ? new Set() : current.pendingSources, translationPending: translationChanged ? false : current.translationPending, llmActionError: settings.localModel !== current.settings.localModel ? null : current.llmActionError, translationResult: translationChanged ? null : current.translationResult, translationError: translationChanged ? "" : current.translationError };
     });
   }, []);
 
   const loadVocabulary = useCallback(async () => {
+    const revision = ++vocabularyRevision.current;
+    vocabularyRefreshActive.current = true;
     setVocabularyLoading(true);
     setVocabularyError("");
     try {
@@ -782,25 +817,40 @@ export default function App() {
         invoke<VocabularyEntry[]>("list_vocabulary_entries", { search: null }),
         invoke<VocabularyBookStatus>("vocabulary_book_status"),
       ]);
+      if (revision !== vocabularyRevision.current) return;
       setVocabularyEntries(entries);
       setVocabularyStatus(status);
     } catch (error) {
-      setVocabularyError(error instanceof Error ? error.message : String(error));
-    } finally { setVocabularyLoading(false); }
+      if (revision === vocabularyRevision.current) { setVocabularyEntries([]); setVocabularyError(error instanceof Error ? error.message : String(error)); }
+      throw error;
+    } finally { if (revision === vocabularyRevision.current) { vocabularyRefreshActive.current = false; setVocabularyLoading(false); } }
   }, [vocabularyEntries.length]);
 
   const persistVocabularyEntry = useCallback(async (entry: VocabularyEntryInput): Promise<VocabularyEntry> => {
-    const saved = isTauri()
-      ? await invoke<VocabularyEntry>(entry.id === null ? "add_vocabulary_entry" : "save_vocabulary_entry", { entry })
+    const interruptedRefresh = vocabularyRefreshActive.current;
+    ++vocabularyRevision.current;
+    vocabularyRefreshActive.current = false;
+    setVocabularyLoading(false);
+    let saved: VocabularyEntry;
+    try { saved = isTauri()
+      ? await invoke<VocabularyEntry>(entry.id === null ? "add_vocabulary_entry" : "save_vocabulary_entry", { entry, expectedVersion: entry.expectedVersion ?? null })
       : { ...entry, id: entry.id ?? Date.now(), createdAt: Date.now(), updatedAt: Date.now() } as VocabularyEntry;
+    } catch (error) {
+      if (interruptedRefresh && isTauri()) await loadVocabulary().catch(() => undefined);
+      throw error;
+    }
+    const needsRefresh = interruptedRefresh || vocabularyRefreshActive.current;
+    ++vocabularyRevision.current;
+    vocabularyRefreshActive.current = false;
     setVocabularyEntries((current) => {
       const withoutSaved = current.filter((item) => item.id !== saved.id);
       return [saved, ...withoutSaved].sort((left, right) => right.updatedAt - left.updatedAt);
     });
     setVocabularyStatus((current) => current ? { ...current, entryCount: vocabularyEntries.some((item) => item.id === saved.id) ? current.entryCount : current.entryCount + 1 } : current);
     setVocabularyError("");
+    if (needsRefresh && isTauri()) await loadVocabulary().catch(() => undefined);
     return saved;
-  }, [vocabularyEntries]);
+  }, [vocabularyEntries, loadVocabulary]);
 
   const addVocabularyFromLookup = useCallback((entry: VocabularyEntryInput) => {
     void persistVocabularyEntry(entry).catch((error) => {
@@ -811,20 +861,36 @@ export default function App() {
   }, [persistVocabularyEntry]);
 
   const deleteVocabularyEntry = useCallback(async (id: number) => {
-    if (isTauri()) await invoke("delete_vocabulary_entry", { id });
+    const interruptedRefresh = vocabularyRefreshActive.current;
+    ++vocabularyRevision.current; vocabularyRefreshActive.current = false; setVocabularyLoading(false);
+    try { if (isTauri()) await invoke("delete_vocabulary_entry", { id }); }
+    catch (error) {
+      if (interruptedRefresh && isTauri()) await loadVocabulary().catch(() => undefined);
+      throw error;
+    }
+    const needsRefresh = interruptedRefresh || vocabularyRefreshActive.current;
+    ++vocabularyRevision.current; vocabularyRefreshActive.current = false;
     setVocabularyEntries((current) => current.filter((entry) => entry.id !== id));
     setVocabularyStatus((current) => current ? { ...current, entryCount: Math.max(0, current.entryCount - 1) } : current);
-  }, []);
+    if (needsRefresh && isTauri()) await loadVocabulary().catch(() => undefined);
+  }, [loadVocabulary]);
 
   const runVocabularyFileCommand = useCallback(async (command: string, argument: Record<string, string>): Promise<VocabularyBookStatus> => {
     if (!isTauri()) throw new Error("File operations are only available in the desktop app.");
     const status = await invoke<VocabularyBookStatus>(command, argument);
+    ++vocabularyRevision.current;
+    if (command !== "export_vocabulary_book") setVocabularyEntries([]);
     setVocabularyStatus(status);
     setVocabularyError("");
     return status;
   }, []);
 
-  useEffect(() => { void loadVocabulary(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!isTauri()) return;
+    const subscription = listen("vocabulary-synced", () => { void loadVocabulary().catch(() => undefined); });
+    return () => { void subscription.then((stop) => stop()); };
+  }, [loadVocabulary]);
+  useEffect(() => { void loadVocabulary().catch(() => undefined); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadLlmStatus = useCallback(async () => {
     if (!isTauri()) return;
@@ -832,7 +898,7 @@ export default function App() {
       const status = await invoke<LlmStatus>("llm_status");
       const selectedInstalled = status.models.some((model) => model.modelId === stateRef.current.settings.localModel && model.installed);
       const fallbackModel = selectedInstalled ? null : status.models.find((model) => model.installed)?.modelId;
-      if (fallbackModel) setSettingsSaved(false);
+      if (fallbackModel) updateSettings((current) => ({ ...current, localModel: fallbackModel }));
       setState((current) => {
         if (!fallbackModel || status.models.some((model) => model.modelId === current.settings.localModel && model.installed)) return { ...current, llmStatus: status };
         const settings = { ...current.settings, localModel: fallbackModel };
@@ -845,7 +911,7 @@ export default function App() {
     } catch {
       setState((current) => ({ ...current, llmStatus: null }));
     }
-  }, []);
+  }, [updateSettings]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -993,6 +1059,7 @@ export default function App() {
   const submitLookup = useCallback(async (rawQuery: string, sourceOverride?: SourceId) => {
     const query = rawQuery.trim();
     const serial = ++lookupSerial.current;
+    lookupHydration.current = null;
     activeLookupStream.current = null;
     suggestionSerial.current += 1;
     setInputValue(query);
@@ -1004,6 +1071,7 @@ export default function App() {
     const snapshot = stateRef.current;
     const sourceIds = activeSourcesFor(snapshot.settings).map((source) => source.id);
     const preload = sourceIds.filter((source) => source !== "local_llm" || source === (sourceOverride ?? snapshot.source));
+    lookupHydration.current = { serial, requested: new Set(preload) };
     setState((current) => ({ ...current, query, source: sourceOverride ?? current.source, youdaoSection: "simple", expandedContent: new Set(), sourceErrors: {}, sourceResults: {}, pendingSources: new Set(preload) }));
     const cached = await readCachedQuery(query);
     if (serial !== lookupSerial.current) return;
@@ -1015,7 +1083,9 @@ export default function App() {
         if (result && (source !== "local_llm" || (result.type === "llm" && result.result.modelId === snapshot.settings.localModel && result.result.promptFingerprint === fingerprint))) results[source] = result;
       });
     }
-    const missing = preload.filter((source) => !results[source]);
+    const scheduled = lookupHydration.current?.serial === serial ? [...lookupHydration.current.requested] : preload;
+    lookupHydration.current = null;
+    const missing = scheduled.filter((source) => !results[source]);
     setState((current) => ({ ...current, sourceResults: results, pendingSources: new Set(missing) }));
     const successful: Partial<Record<SourceId, SourceLookupResult>> = {};
     await Promise.all(missing.map(async (source) => {
@@ -1034,6 +1104,7 @@ export default function App() {
           return { ...current, sourceResults, sourceErrors: { ...current.sourceErrors, [source]: error instanceof Error ? error.message : String(error) } };
         });
       } finally {
+        if (requestId && activeLookupStream.current?.requestId === requestId) { activeLookupStream.current = null; delete latestStreamUpdates.current.lookup; }
         if (serial === lookupSerial.current) setState((current) => { const pending = new Set(current.pendingSources); pending.delete(source); return { ...current, pendingSources: pending }; });
       }
     }));
@@ -1066,6 +1137,12 @@ export default function App() {
     const snapshot = stateRef.current;
     const query = snapshot.query.trim();
     if (!query || snapshot.sourceResults[source] || snapshot.pendingSources.has(source)) return;
+    const hydration = lookupHydration.current;
+    if (hydration?.serial === lookupSerial.current) {
+      hydration.requested.add(source);
+      setState((current) => { const pending = new Set(current.pendingSources); pending.add(source); return { ...current, pendingSources: pending }; });
+      return;
+    }
     const serial = lookupSerial.current;
     const requestId = source === "local_llm" ? llmRequestId("lookup") : undefined;
     if (requestId) activeLookupStream.current = { requestId, query, promptFingerprint: promptFingerprint(snapshot.settings.dictionarySystemPrompt, DEFAULT_DICTIONARY_SYSTEM_PROMPT) };
@@ -1082,6 +1159,7 @@ export default function App() {
         return { ...current, sourceResults, sourceErrors: { ...current.sourceErrors, [source]: error instanceof Error ? error.message : String(error) } };
       });
     } finally {
+      if (requestId && activeLookupStream.current?.requestId === requestId) { activeLookupStream.current = null; delete latestStreamUpdates.current.lookup; }
       if (serial === lookupSerial.current) setState((current) => { const pending = new Set(current.pendingSources); pending.delete(source); return { ...current, pendingSources: pending }; });
     }
   }, []);
@@ -1095,10 +1173,10 @@ export default function App() {
     setState((current) => ({ ...current, translationPending: true, translationError: "", translationResult: null }));
     try {
       const result = isTauri() ? await invoke<LlmTranslation>("translate_llm", { text, modelId: snapshot.settings.localModel, systemPrompt: snapshot.settings.translationSystemPrompt, requestId }) : { source: text, translation: "浏览器预览不会加载本地模型。请在桌面应用的离线 AI 版中使用翻译功能。", modelId: snapshot.settings.localModel, modelName: localModels.find((model) => model.id === snapshot.settings.localModel)?.name ?? "Qwen3-0.6B", note: copy[snapshot.settings.language].localAiNote };
-      setState((current) => ({ ...current, translationResult: result }));
+      if (activeTranslationStream.current?.requestId === requestId) setState((current) => ({ ...current, translationResult: result }));
     } catch (error) {
-      setState((current) => ({ ...current, translationResult: null, translationError: error instanceof Error ? error.message : String(error) }));
-    } finally { setState((current) => ({ ...current, translationPending: false })); }
+      if (activeTranslationStream.current?.requestId === requestId) setState((current) => ({ ...current, translationResult: null, translationError: error instanceof Error ? error.message : String(error) }));
+    } finally { if (activeTranslationStream.current?.requestId === requestId) { activeTranslationStream.current = null; delete latestStreamUpdates.current.translation; setState((current) => ({ ...current, translationPending: false })); } }
   }, []);
 
   const downloadModel = useCallback(async (modelId: LocalModelId) => {
@@ -1116,14 +1194,15 @@ export default function App() {
   }, [loadLlmStatus, updateSettings]);
 
   const resetSettings = useCallback(() => {
+    lookupSerial.current++; lookupHydration.current = null; activeLookupStream.current = null; activeTranslationStream.current = null; latestStreamUpdates.current = {};
     const settings = cloneDefaultSettings();
     setSettingsSaved(false);
-    setState((current) => ({ ...current, settings, source: "local", sourceResults: {}, sourceErrors: {}, translationResult: null, translationError: "" }));
+    setState((current) => ({ ...current, settings, source: "local", pendingSources: new Set(), translationPending: false, sourceResults: {}, sourceErrors: {}, translationResult: null, translationError: "" }));
   }, []);
 
   const saveSettings = useCallback(() => {
     const settings = stateRef.current.settings;
-    persistSettings(settings);
+    try { persistSettings(settings); } catch (error) { setSettingsSaved(false); window.alert(`无法保存设置：${String(error)}`); return; }
     void trimQueryCache(settings.cacheLimit);
     setSettingsSaved(true);
   }, []);
@@ -1151,9 +1230,10 @@ export default function App() {
 
   const pasteSelection = useCallback((menu: SelectionMenuState) => {
     setSelectionMenu(null);
+    const originalValue = menu.input?.value;
     void pasteTextFromClipboard().then((clipboardText) => {
       const input = menu.input;
-      if (!input?.isConnected || !clipboardText) return;
+      if (!input?.isConnected || !clipboardText || input.value !== originalValue) return;
       const start = clamp(menu.selectionStart, 0, input.value.length);
       const end = clamp(menu.selectionEnd, start, input.value.length);
       const available = input.maxLength > 0 ? Math.max(0, input.maxLength - (input.value.length - (end - start))) : clipboardText.length;
@@ -1184,10 +1264,10 @@ export default function App() {
   };
 
   return <div className="app-shell"><TitleBar t={t} /><div className="content-panel" ref={contentPanelRef} onScroll={handleScroll}><main onContextMenu={openSelectionMenu}><Hero panel={state.panel} setPanel={(panel) => setState((current) => ({ ...current, panel }))} previousWord={lookupHistory.at(-1)?.query ?? null} returnToPrevious={returnToPreviousLookup} t={t} />
-    {state.panel === "dictionary" && <div className="selection-lookup-surface dictionary-page"><DictionaryPanel state={state} activeSources={activeSources} inputValue={inputValue} setInputValue={setInputValue} suggestions={suggestions} submit={submitFreshLookup} graphLookup={lookupFromGraph} selectSource={(source) => setState((current) => ({ ...current, source, youdaoSection: "simple", expandedContent: new Set() }))} ensureSource={(source) => void ensureSource(source)} retry={() => void submitLookup(state.query)} toggleExpanded={(key) => setState((current) => { const expanded = new Set(current.expandedContent); if (expanded.has(key)) expanded.delete(key); else expanded.add(key); return { ...current, expandedContent: expanded }; })} setYoudaoSection={(youdaoSection) => setState((current) => ({ ...current, youdaoSection }))} addVocabulary={addVocabularyFromLookup} vocabularyWords={vocabularyWords} t={t} /></div>}
+    {state.panel === "dictionary" && <div className="selection-lookup-surface dictionary-page"><DictionaryPanel setPanel={(panel) => setState((current) => ({ ...current, panel }))} state={state} activeSources={activeSources} inputValue={inputValue} setInputValue={setInputValue} suggestions={suggestions} submit={submitFreshLookup} graphLookup={lookupFromGraph} selectSource={(source) => setState((current) => ({ ...current, source, youdaoSection: "simple", expandedContent: new Set() }))} ensureSource={(source) => void ensureSource(source)} retry={() => void submitLookup(state.query)} toggleExpanded={(key) => setState((current) => { const expanded = new Set(current.expandedContent); if (expanded.has(key)) expanded.delete(key); else expanded.add(key); return { ...current, expandedContent: expanded }; })} setYoudaoSection={(youdaoSection) => setState((current) => ({ ...current, youdaoSection }))} addVocabulary={addVocabularyFromLookup} vocabularyWords={vocabularyWords} t={t} /></div>}
     {state.panel === "translation" && <div className="selection-lookup-surface"><TranslationPanel state={state} setInput={(translationInput) => setState((current) => ({ ...current, translationInput }))} submit={() => void translate()} t={t} /></div>}
     {state.panel === "vocabulary" && <div className="selection-lookup-surface"><VocabularyPanel entries={vocabularyEntries} status={vocabularyStatus} loading={vocabularyLoading} error={vocabularyError} isDesktop={isTauri()} persist={persistVocabularyEntry} remove={deleteVocabularyEntry} refresh={loadVocabulary} importBook={(path) => runVocabularyFileCommand("import_vocabulary_book", { sourcePath: path })} exportBook={(path) => runVocabularyFileCommand("export_vocabulary_book", { destinationPath: path })} moveBook={(path) => runVocabularyFileCommand("move_vocabulary_book", { destinationPath: path })} openBook={(path) => runVocabularyFileCommand("open_vocabulary_book", { sourcePath: path })} t={t} /></div>}
     <div className="selection-lookup-surface" hidden={state.panel !== "quiz"}><VocabularyQuiz entries={vocabularyEntries} modelReady={Boolean(isTauri() && state.llmStatus?.engineAvailable && state.llmStatus.models.some((model) => model.modelId === state.settings.localModel && model.installed))} modelName={localModels.find((model) => model.id === state.settings.localModel)?.name ?? "Qwen3-0.6B"} generateQuestion={generateVocabularyQuizQuestion} openSettings={() => setState((current) => ({ ...current, panel: "settings", settingsTab: "dictionary" }))} t={t} /></div>
     {state.panel === "settings" && <SettingsPanel state={state} fonts={fonts} updateSettings={updateSettings} setTab={(settingsTab) => setState((current) => ({ ...current, settingsTab }))} setPanel={(panel) => setState((current) => ({ ...current, panel }))} downloadModel={(model) => void downloadModel(model)} resetSettings={resetSettings} saveSettings={saveSettings} settingsSaved={settingsSaved} t={t} />}
-  </main></div>{selectionMenu && <SelectionLookupMenu menu={selectionMenu} copySelection={copySelection} lookup={lookupSelection} addVocabulary={addSelectionToVocabulary} paste={pasteSelection} t={t} />}<footer><span className="footer-pulse" /><span>{t("footerLocalFirst")}</span><i /><span>{t("footerLearning")}</span></footer></div>;
+  </main></div>{selectionMenu && createPortal(<SelectionLookupMenu menu={selectionMenu} copySelection={copySelection} lookup={lookupSelection} addVocabulary={addSelectionToVocabulary} paste={pasteSelection} t={t} />, document.body)}<footer><span className="footer-pulse" /><span>{t("footerLocalFirst")}</span><i /><span>{t("footerLearning")}</span></footer></div>;
 }

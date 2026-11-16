@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { CopyKey } from "./config";
@@ -23,6 +23,12 @@ export function WordGraphPanel({ query, modelId, modelReady, onLookup, t }: {
   const desktop = "__TAURI_INTERNALS__" in window;
   const [retry, setRetry] = useState(0);
   const [state, setState] = useState<GraphState>({ status: "loading" });
+  const mnemonicGeneration = useRef(0);
+  useEffect(() => {
+    mnemonicGeneration.current++;
+    setMnemonic(""); setMnemonicError(""); setMnemonicPending(false);
+    return () => { mnemonicGeneration.current++; };
+  }, [word, modelId, retry]);
   const [mnemonic, setMnemonic] = useState("");
   const [mnemonicPending, setMnemonicPending] = useState(false);
   const [mnemonicError, setMnemonicError] = useState("");
@@ -46,7 +52,8 @@ export function WordGraphPanel({ query, modelId, modelReady, onLookup, t }: {
   const hasRelations = Boolean(graph && (hasEvidence || graph.spelling.length));
 
   const generateMnemonic = async () => {
-    if (!graph || !hasEvidence) return;
+    if (!graph || !hasEvidence || mnemonicPending) return;
+    const generation = ++mnemonicGeneration.current;
     const evidence = [
       ...graph.morphology.map((part) => `构词：${part.label}`),
       ...graph.senses.map((sense) => `义项 ${sense.id} (${sense.gloss})：${sense.synonyms.map((item) => item.word).join("、")}`),
@@ -54,11 +61,12 @@ export function WordGraphPanel({ query, modelId, modelReady, onLookup, t }: {
     setMnemonicPending(true);
     setMnemonicError("");
     try {
-      setMnemonic(await invoke<string>("generate_graph_mnemonic", { modelId, word, evidence }));
+      const result = await invoke<string>("generate_graph_mnemonic", { modelId, word, evidence });
+      if (generation === mnemonicGeneration.current) setMnemonic(result);
     } catch (error) {
-      setMnemonicError(String(error));
+      if (generation === mnemonicGeneration.current) setMnemonicError(String(error));
     } finally {
-      setMnemonicPending(false);
+      if (generation === mnemonicGeneration.current) setMnemonicPending(false);
     }
   };
 

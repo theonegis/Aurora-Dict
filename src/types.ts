@@ -200,6 +200,8 @@ export interface QueryCacheRecord {
 }
 
 export interface VocabularyEntryInput {
+  expectedVersion?: string;
+  syncVersion?: string;
   id: number | null;
   word: string;
   phonetic: string;

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>NSLocalNetworkUsageDescription</key><string>与您配对的手机在局域网内同步生词本。</string>
+<key>NSBonjourServices</key><array><string>_aurora-sync._tcp</string></array>
+</dict></plist>

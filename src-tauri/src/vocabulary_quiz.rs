@@ -7,10 +7,12 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
+use aurora_core::vocabulary::VocabularyEntry;
+
 use crate::{
     database,
     llm::{self, LlmManager},
-    vocabulary::{self, VocabularyEntry},
+    vocabulary,
 };
 
 #[derive(Debug, Serialize)]
@@ -121,7 +123,7 @@ fn build_question(
     {
         return Err("生成的句子泄露了其他选项。".into());
     }
-    if !translation
+    if translation.chars().any(|c| c.is_ascii_alphabetic()) || explanation.chars().any(|c| c.is_ascii_alphabetic()) || !translation
         .chars()
         .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
         || !explanation
@@ -257,6 +259,16 @@ fn candidate_words(
             }
         }
     }
+    // Sampling is a fast path, not evidence that the dictionary has too few choices.
+    if candidates.len() < 3 {
+        let mut statement = dictionary.prepare("SELECT word, pos FROM stardict WHERE translation IS NOT NULL AND translation != '' ORDER BY id").map_err(|error| error.to_string())?;
+        let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))).map_err(|error| error.to_string())?;
+        for row in rows {
+            let (word, pos) = row.map_err(|error| error.to_string())?;
+            add_candidate(&mut candidates, &mut seen, target_pos.as_deref(), word, pos, false);
+            if candidates.len() >= 3 { break; }
+        }
+    }
     candidates.sort_by_key(|(word, from_book, same_pos)| {
         (!from_book, !same_pos, word.len().abs_diff(target.len()))
     });
@@ -335,13 +347,15 @@ pub async fn generate_vocabulary_quiz_question(
     entry_id: i64,
     model_id: String,
 ) -> Result<QuizQuestion, String> {
-    let (_, book) = vocabulary::open_active_vocabulary(&app)?;
-    let entry = vocabulary::entry_by_id(&book, entry_id)?;
-    if !eligible(&entry.word) {
-        return Err("只能用单个英文单词出题。".into());
-    }
-    let dictionary = database(&app)?;
-    let distractors = candidate_words(&book, &dictionary, &entry.word)?;
+    let book_app = app.clone();
+    let (entry, distractors) = tauri::async_runtime::spawn_blocking(move || vocabulary::with_active_connection(&book_app, |book| {
+        let entry = aurora_core::vocabulary::entry_by_id(book, entry_id)?;
+        if !eligible(&entry.word) {
+            return Err("只能用单个英文单词出题。".into());
+        }
+        let distractors = candidate_words(book, &database(&book_app)?, &entry.word)?;
+        Ok((entry, distractors))
+    })).await.map_err(|error| error.to_string())??;
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -386,6 +400,7 @@ mod tests {
             examples_markdown: "".into(),
             created_at: 1,
             updated_at: 1,
+            sync_version: String::new(),
         }
     }
 

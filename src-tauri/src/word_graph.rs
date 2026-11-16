@@ -157,14 +157,13 @@ fn parse_wordnet(word: &str, body: &[u8]) -> Result<Vec<GraphSense>, String> {
     Ok(senses)
 }
 
-fn parse_kaikki(word: &str, body: &[u8]) -> Vec<GraphMorpheme> {
+fn parse_kaikki(word: &str, body: &[u8]) -> Result<Vec<GraphMorpheme>, String> {
     let url = kaikki_url(word).replace(".jsonl", ".html");
     let mut output = Vec::new();
     let mut seen = HashSet::new();
     for line in body.split(|byte| *byte == b'\n') {
-        let Ok(record) = serde_json::from_slice::<Value>(line) else {
-            continue;
-        };
+        if line.iter().all(u8::is_ascii_whitespace) { continue; }
+        let record: Value = serde_json::from_slice(line).map_err(|_| "无效的 Kaikki JSON 数据".to_string())?;
         if record.get("lang_code").and_then(Value::as_str) != Some("en")
             || !record
                 .get("word")
@@ -190,15 +189,10 @@ fn parse_kaikki(word: &str, body: &[u8]) -> Vec<GraphMorpheme> {
             if args.get("1").and_then(Value::as_str) != Some("en") {
                 continue;
             }
-            let mut components = (2..=5)
-                .filter_map(|index| args.get(&index.to_string()).and_then(Value::as_str))
-                .map(str::trim)
-                .filter(|value| !value.is_empty() && value.len() <= 40)
-                .map(str::to_string)
-                .collect::<Vec<_>>();
-            if components.len() < 2 {
-                continue;
-            }
+            let mut numbered = args.iter().filter_map(|(key, value)| key.parse::<usize>().ok().filter(|key| *key >= 2).map(|key| (key, value))).collect::<Vec<_>>();
+            numbered.sort_by_key(|(key, _)| *key);
+            if numbered.len() < 2 || numbered.len() > 8 || numbered.iter().enumerate().any(|(i, (key, value))| *key != i + 2 || value.as_str().map_or(true, |value| value.trim().is_empty() || value.len() > 40)) { continue; }
+            let mut components = numbered.iter().map(|(_, value)| value.as_str().unwrap().trim().to_string()).collect::<Vec<_>>();
             if matches!(name, "suf" | "suffix") {
                 for component in components.iter_mut().skip(1) {
                     if !component.starts_with('-') {
@@ -221,11 +215,11 @@ fn parse_kaikki(word: &str, body: &[u8]) -> Vec<GraphMorpheme> {
                 });
             }
             if output.len() == 3 {
-                return output;
+                return Ok(output);
             }
         }
     }
-    output
+    Ok(output)
 }
 
 fn spelling_neighbours(connection: &Connection, word: &str) -> Result<Vec<GraphWord>, String> {
@@ -289,15 +283,16 @@ pub async fn lookup_word_graph(app: AppHandle, query: String) -> Result<WordGrap
         }
     };
     let morphology = match kaikki {
-        Ok(Some(body)) => parse_kaikki(&word, &body),
+        Ok(Some(body)) => parse_kaikki(&word, &body).unwrap_or_else(|error| { warnings.push(format!("Kaikki 数据无法解析：{error}")); Vec::new() }),
         Ok(None) => Vec::new(),
         Err(error) => {
             warnings.push(format!("Kaikki 暂不可用：{error}"));
             Vec::new()
         }
     };
-    let spelling =
-        match database(&app).and_then(|connection| spelling_neighbours(&connection, &word)) {
+    let spelling_word = word.clone();
+    let spelling_result = tauri::async_runtime::spawn_blocking(move || database(&app).and_then(|connection| spelling_neighbours(&connection, &spelling_word))).await.map_err(|error| error.to_string())?;
+    let spelling = match spelling_result {
             Ok(words) => words,
             Err(error) => {
                 warnings.push(format!("本地拼写词库暂不可用：{error}"));
@@ -318,6 +313,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rejects_broken_or_partial_morphology() {
+        assert!(parse_kaikki("test", b"<html>unavailable</html>").is_err());
+        let body = br#"{"word":"test","lang_code":"en","etymology_templates":[{"name":"compound","args":{"1":"en","2":"a","3":"b","4":"c","5":"d","6":"e"}}]}"#;
+        assert_eq!(parse_kaikki("test", body).unwrap()[0].components.len(), 5);
+        let body = br#"{"word":"test","lang_code":"en","etymology_templates":[{"name":"compound","args":{"1":"en","2":"a","4":"b"}}]}"#;
+        assert!(parse_kaikki("test", body).unwrap().is_empty());
+    }
+    #[test]
     fn wordnet_keeps_synonyms_inside_their_sense() {
         let body = br#"[{"id":"one","definition":["a kind act"],"partOfSpeech":"n","members":["kindness","benignity"]},{"id":"two","definition":["quality"],"members":["kindness","goodness"]}]"#;
         let senses = parse_wordnet("kindness", body).unwrap();
@@ -330,7 +333,7 @@ mod tests {
     fn kaikki_accepts_only_structured_english_affixes() {
         let body = br#"{"word":"kindness","lang_code":"en","etymology_text":"kind + -ness","etymology_templates":[{"name":"suffix","args":{"1":"en","2":"kind","3":"-ness"}}]}
 {"word":"kindness","lang_code":"en","etymology_templates":[{"name":"foo","args":{"1":"en","2":"fake","3":"ness"}}]}"#;
-        let parts = parse_kaikki("kindness", body);
+        let parts = parse_kaikki("kindness", body).unwrap();
         assert_eq!(parts.len(), 1);
         assert_eq!(parts[0].label, "kind + -ness");
     }

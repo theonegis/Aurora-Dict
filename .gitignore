@@ -8,7 +8,7 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Rust / Tauri build outputs (the generated schemas are reproducible)
-src-tauri/target/
+**/target/
 src-tauri/gen/
 src-tauri/binaries/
 
@@ -41,6 +41,7 @@ Thumbs.db
 
 # Playwright
 .playwright-cli/
+.firecrawl/
 
 # Local notes stay on this machine
 /docs/

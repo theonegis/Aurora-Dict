@@ -35,7 +35,7 @@ export function VocabularyQuiz({ entries, modelReady, modelName, generateQuestio
   const actualCount = Math.min(count, eligibleCount);
 
   useEffect(() => {
-    if (phase !== "running" || question || error || loading || !queue[index]) return;
+    if (phase !== "running" || question || error || !queue[index]) return;
     let cancelled = false;
     setLoading(true);
     generateQuestion(queue[index].id).then((next) => {
@@ -43,9 +43,10 @@ export function VocabularyQuiz({ entries, modelReady, modelName, generateQuestio
       if (next.entryId !== queue[index].id || next.options.length !== 4 || next.correctIndex < 0 || next.correctIndex > 3) {
         throw new Error(t("quizInvalidQuestion"));
       }
+      setLoading(false);
       setQuestion(next);
     }).catch((reason) => {
-      if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+      if (!cancelled) { setLoading(false); setError(reason instanceof Error ? reason.message : String(reason)); }
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [phase, question, error, queue, index, retry, generateQuestion, t]);
