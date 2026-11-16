@@ -1,0 +1,74 @@
+name: Recover macOS release installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build (source is never taken from main)
+        required: true
+        default: v2.2.0
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: recover-macos-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  arm64:
+    name: macOS ARM64 on Intel runner
+    # Avoid the ARM runner capacity queue. Both clang and Rust support this target.
+    runs-on: macos-15-intel
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "15.0"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          lfs: true
+      - name: Validate immutable source and draft release
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          [[ "$RELEASE_TAG" == "v$VERSION" ]]
+          [[ "$(git rev-parse HEAD)" == "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" ]]
+          [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" == "true" ]] || {
+            echo "Recovery only uploads to an existing draft; published releases are immutable." >&2
+            exit 2
+          }
+          echo "release_id=$(gh release view "$RELEASE_TAG" --json databaseId --jq .databaseId)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - run: npm ci
+      - name: Test shared vocabulary and LAN sync
+        run: cargo test --locked --manifest-path crates/aurora-sync/Cargo.toml --package aurora-core --package aurora-sync
+      - run: bash scripts/prepare-llama-sidecar.sh aarch64-apple-darwin
+        env:
+          AURORA_BUILD_LLAMA_FROM_SOURCE: "1"
+          CMAKE_BUILD_PARALLEL_LEVEL: "3"
+      - name: Verify sidecar target architecture
+        run: lipo -verify_arch arm64 src-tauri/binaries/llama-server-aarch64-apple-darwin
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          APPLE_SIGNING_IDENTITY: "-"
+        with:
+          releaseId: ${{ steps.release.outputs.release_id }}
+          args: "--target aarch64-apple-darwin --bundles dmg"
+          uploadUpdaterJson: false
+          releaseAssetNamePattern: "aurora-dict_[version]_[platform]_[arch]_[bundle][ext]"
+      - name: Verify application target architecture
+        run: lipo -verify_arch arm64 src-tauri/target/aarch64-apple-darwin/release/aurora-dict
