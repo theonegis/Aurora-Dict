@@ -60,7 +60,7 @@ jobs:
           AURORA_BUILD_LLAMA_FROM_SOURCE: "1"
           CMAKE_BUILD_PARALLEL_LEVEL: "3"
       - name: Verify sidecar target architecture
-        run: lipo -verify_arch arm64 src-tauri/binaries/llama-server-aarch64-apple-darwin
+        run: lipo src-tauri/binaries/llama-server-aarch64-apple-darwin -verify_arch arm64
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -71,4 +71,4 @@ jobs:
           uploadUpdaterJson: false
           releaseAssetNamePattern: "aurora-dict_[version]_[platform]_[arch]_[bundle][ext]"
       - name: Verify application target architecture
-        run: lipo -verify_arch arm64 src-tauri/target/aarch64-apple-darwin/release/aurora-dict
+        run: lipo src-tauri/target/aarch64-apple-darwin/release/aurora-dict -verify_arch arm64
