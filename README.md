@@ -4,11 +4,19 @@ Aurora Dict 是一款为 Linux 用户而做、也同样适用于 macOS 与 Windo
 
 许多 Linux 上可用的词典要么界面陈旧，要么必须依赖网页或复杂的导入流程。这个项目希望提供另一种体验：打开即可使用的离线词库、清晰可靠的中英查询，以及一个安静、精致、不打扰阅读的桌面界面。它使用 Tauri 2 构建，前端采用 React、TypeScript 与 Vite；在保持轻量的同时，将 iOS 的卡片层次与 Windows Mica 的半透明质感带到桌面端。
 
-## 主页
+## 一分钟了解 Aurora Dict
 
-![Aurora Dict 2.2 桌面主页](assets/screenshots/desktop-home-2.2.png)
+https://github.com/user-attachments/assets/c6b2e15c-7b0e-4599-8178-a265ff665b6c
 
-青绿渐变、轻量玻璃导航和清晰的阅读卡片，与 Aurora Dict 移动版保持一致的视觉语言。
+离线查词、本地 AI 翻译、AI 复习，以及无需账号的电脑与手机生词本同步。免费使用，无内置广告。
+
+[下载桌面宣传视频](https://github.com/theonegis/Aurora-Dict/releases/download/v2.2.0/aurora-dict_2.2.0_desktop-demo.mp4) · [视频制作与音乐来源](assets/videos/README.md)
+
+## 下载与安装
+
+[下载桌面版](https://github.com/theonegis/Aurora-Dict/releases/latest) · **[Android / iOS 下载与安装教程](MOBILE-INSTALL.md)**
+
+移动版与桌面版共用 **v2.2.0** Release。Android 提供可直接安装的 APK；iOS 提供需自行签名的 IPA，请先阅读教程。移动端仅发布编译好的安装包，不在此仓库上传移动端源码。
 
 ## 特性
 
@@ -61,9 +69,7 @@ npm run dev
 
 ## 许可证
 
-自 v0.1.2 起，Aurora Dict 的代码采用 [PolyForm Noncommercial License 1.0.0](LICENSE)：允许许可证所定义的非商业使用，但传播代码或衍生作品时必须保留许可证和其中的 `Required Notice` 署名声明。商业使用必须事先取得版权所有者的书面授权，详情见 [商业授权说明](COMMERCIAL-LICENSE.md)。此前已经依照 GPL-3.0 发布的版本仍受其原许可证约束。
-
-Aurora Dict 是源代码可用（source-available）软件，并非 OSI 定义的开源软件。
+Aurora Dict 的代码采用 [PolyForm Noncommercial License 1.0.0](LICENSE)：允许许可证所定义的非商业使用，但传播代码或衍生作品时必须保留许可证和其中的 `Required Notice` 署名声明。商业使用必须事先取得版权所有者的书面授权，详情见 [商业授权说明](COMMERCIAL-LICENSE.md)。此前已经依照 GPL-3.0 发布的版本仍受其原许可证约束。
 
 ## 离线词库许可证
 
